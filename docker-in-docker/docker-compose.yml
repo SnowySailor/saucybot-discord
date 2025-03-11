@@ -1,0 +1,9 @@
+version: '2.3'
+
+services:
+  saucybot-dind:
+    container_name: saucybot-dind
+    privileged: true
+    build:
+      context: ..
+      dockerfile: docker-in-docker/Dockerfile
