@@ -1,5 +1,5 @@
 #/bin/bash
 
-cp ../SaucyBot/.dockerignore .;
+cp .dockerignore ..;
 docker-compose build "$@";
-rm .dockerignore;
+rm ../.dockerignore;
