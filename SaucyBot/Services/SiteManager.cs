@@ -157,8 +157,6 @@ public sealed partial class SiteManager
         {
             _logger.LogDebug("Matched link \"{Match}\" to site {Site}", match, site);
             
-            var matchedMessage = await SendMatchedMessage(message, site);
-
             try
             {
                 var response = await _sites[site].Process(match, message);
@@ -166,12 +164,6 @@ public sealed partial class SiteManager
                 if (response is null)
                 {
                     _logger.LogDebug("Failed to process match \"{Match}\" of site {Site}", match, site);
-
-                    if (matchedMessage is not null)
-                    {
-                        await matchedMessage.DeleteAsync();
-                    }
-
                     continue;
                 }
 
@@ -185,13 +177,6 @@ public sealed partial class SiteManager
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Exception occured processing or sending messages");
-            }
-            finally
-            {
-                if (matchedMessage is not null)
-                {
-                    await matchedMessage.DeleteAsync();
-                }
             }
         }
     }
@@ -238,18 +223,6 @@ public sealed partial class SiteManager
                 await command.FollowupAsync("Failed to create embed information for provided URL", ephemeral: true);
             }
         }
-    }
-
-    private async Task<IUserMessage?> SendMatchedMessage(SocketUserMessage message, string site)
-    {
-        var guildConfiguration = await _guildConfigurationManager.GetByChannel(message.Channel);
-
-        if (guildConfiguration is null || !guildConfiguration.SendMatchedMessage)
-        {
-            return null;
-        }
-
-        return await message.ReplyAsync($"Matched link to {site}, please wait...", allowedMentions: AllowedMentions.None);
     }
 
     private bool ShouldProcessMessage(SocketUserMessage message)
