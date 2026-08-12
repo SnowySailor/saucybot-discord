@@ -17,7 +17,7 @@ public static class Constants
     /// <summary>
     /// The maximum number of embeds that Discord allows per message.
     /// </summary>
-    public const int MaximumEmbedsPerMessage = 4;
+    public const int MaximumEmbedsPerMessage = 999;
 
     /// <summary>
     /// The URL to the Twitter favicon that Discord uses for their embeds.
@@ -58,7 +58,7 @@ public static class Constants
     ///
     /// This is primarily used as a fallback value.
     /// </summary>
-    public const int DefaultMaximumEmbeds = 8;
+    public const int DefaultMaximumEmbeds = 999;
 
     /// <summary>
     /// The default maximum number of Pixiv images to return for a Pixiv illustration.
