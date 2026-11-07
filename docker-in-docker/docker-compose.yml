@@ -1,5 +1,3 @@
-version: '2.3'
-
 services:
   saucybot-dind:
     container_name: saucybot-dind
@@ -7,3 +5,9 @@ services:
     build:
       context: ..
       dockerfile: docker-in-docker/Dockerfile
+    volumes:
+      # Persists the inner daemon's images, build cache and volumes (including the database).
+      - dind-storage:/var/lib/docker
+
+volumes:
+  dind-storage:

@@ -1,0 +1,7 @@
+# Override for SaucyBot/docker-compose.prod.yml when running inside docker-in-docker:
+# use the bot image baked into the outer image instead of building it on startup.
+services:
+  bot:
+    image: saucybot-bot:baked
+    pull_policy: never
+    build: !reset null

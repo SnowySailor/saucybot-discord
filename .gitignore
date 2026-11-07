@@ -460,3 +460,6 @@ $RECYCLE.BIN/
 !.vscode/tasks.json
 !.vscode/launch.json
 !.vscode/extensions.json
+
+# Prebuilt image tarballs baked into the docker-in-docker image
+docker-in-docker/images/
