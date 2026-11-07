@@ -1,0 +1,42 @@
+using System.Text.RegularExpressions;
+using Discord;
+
+namespace SaucyBot.Site.FurAffinity;
+
+[SiteIdentifier("FurAffinity")]
+public sealed partial class XFurAffinitySite : BaseSite
+{
+    [GeneratedRegex(@"https?://(?:(?!xfuraffinity\.net)(?:www\.)?)?furaffinity\.net/(?<path>(?:view|full)/(?<id>\d+))/?(?<query>\?[^\s#]*)?(?<fragment>\#[^\s]*)?", RegexOptions.IgnoreCase | RegexOptions.Multiline)]
+    private static partial Regex XFurAffinityPattern();
+
+    public override Regex Pattern => XFurAffinityPattern();
+
+    public override Color Color => new(0x8B5CF6);
+
+    private readonly ILogger<XFurAffinitySite> _logger;
+
+    public XFurAffinitySite(ILogger<XFurAffinitySite> logger)
+    {
+        _logger = logger;
+    }
+
+    public override Task<ProcessResponse?> Process(ProcessRequest request)
+    {
+        var originalUrl = request.Match.Value;
+        var path = request.Match.Groups["path"].Value;
+        var query = request.Match.Groups["query"].Success ? request.Match.Groups["query"].Value : string.Empty;
+        var fragment = request.Match.Groups["fragment"].Success ? request.Match.Groups["fragment"].Value : string.Empty;
+
+        var rewrittenUrl = $"https://xfuraffinity.net/{path}{query}{fragment}";
+
+        _logger.LogDebug("Rewrote FurAffinity URL: {Original} -> {Rewritten}", originalUrl, rewrittenUrl);
+
+        var response = new ProcessResponse
+        {
+            Text = rewrittenUrl,
+            IsNsfw = true,
+        };
+
+        return Task.FromResult<ProcessResponse?>(response);
+    }
+}

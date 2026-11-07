@@ -1,6 +1,4 @@
-﻿using System.Net;
-using System.Net.Http.Headers;
-using System.Reflection;
+using System.Net;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Polly;
@@ -15,34 +13,27 @@ public sealed class FxTwitterClient : IFxTwitterClient
     private const string BaseUrl = "https://api.fxtwitter.com";
 
     private readonly ILogger<FxTwitterClient> _logger;
-    
+
     private readonly ICacheManager _cache;
-    
-    private readonly HttpClient _client = new();
-    
+
+    private readonly HttpClient _client;
+
     private readonly ResiliencePipeline<string?> _pipeline;
 
-    public FxTwitterClient(ILogger<FxTwitterClient> logger, ICacheManager cacheManager)
+    public FxTwitterClient(ILogger<FxTwitterClient> logger, ICacheManager cacheManager, HttpClient client)
     {
         _logger = logger;
         _cache = cacheManager;
-        
-        _client.DefaultRequestHeaders.UserAgent.Add(
-            new ProductInfoHeaderValue("SaucyBot", Assembly.GetEntryAssembly()?.GetName().Version?.ToString())    
-        );
-        
-        _client.DefaultRequestHeaders.Accept.Add(
-            new MediaTypeWithQualityHeaderValue("application/json")
-        );
-        
+        _client = client;
+
         _pipeline = new ResiliencePipelineBuilder<string?>()
             .AddFallback(new FallbackStrategyOptions<string?>
             {
                 FallbackAction = _ => Outcome.FromResultAsValueTask<string?>(null),
                 ShouldHandle = arguments => arguments.Outcome switch
                 {
-                    { Exception: HttpRequestException e } => e.StatusCode == HttpStatusCode.NotFound ? PredicateResult.True() : PredicateResult.False(),
-                    _ => PredicateResult.False(), 
+                    { Exception: HttpRequestException e } => e.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.NotFound ? PredicateResult.True() : PredicateResult.False(),
+                    _ => PredicateResult.False(),
                 }
             })
             .AddRetry(new RetryStrategyOptions<string?>
@@ -60,7 +51,7 @@ public sealed class FxTwitterClient : IFxTwitterClient
             .AddTimeout(TimeSpan.FromSeconds(15))
             .Build();
     }
-    
+
     public async Task<FxTwitterResponse?> GetTweet(string name, string identifier, string? translate = null)
     {
         var response = await _cache.Remember(
@@ -81,27 +72,21 @@ public sealed class FxTwitterClient : IFxTwitterClient
         {
             _logger.LogDebug(e, "Failed to deserialize FxTwitter response, response not JSON or is malformed.");
             return null;
-        } 
-    }
-    
-    private string BuildUrl(string name, string identifier, string? translate = null)
-    {
-        if (translate is null)
-        {
-            return $"{BaseUrl}/{name}/status/{identifier}";   
         }
-        
-        return $"{BaseUrl}/{name}/status/{identifier}/{translate}";
     }
-    
-    private string BuildCacheKey(string name, string identifier, string? translate = null)
+
+    private static string BuildUrl(string name, string identifier, string? translate = null)
     {
-        if (translate is null)
-        {
-            return $"fxtwitter.tweet_{name}_{identifier}";
-        }
-        
-        return $"fxtwitter.tweet_{name}_{identifier}_{translate}";
+        return translate is null or "original"
+            ? $"{BaseUrl}/{name}/status/{identifier}"
+            : $"{BaseUrl}/{name}/status/{identifier}/{translate}";
+    }
+
+    private static string BuildCacheKey(string name, string identifier, string? translate = null)
+    {
+        return translate is null
+            ? $"fxtwitter.tweet_{name}_{identifier}"
+            : $"fxtwitter.tweet_{name}_{identifier}_{translate}";
     }
 }
 
@@ -201,7 +186,7 @@ public sealed record FxTwitterVideo(
     int Height,
     [property: JsonPropertyName("format")]
     string Format
-); 
+);
 
 public sealed record FxTwitterPhoto(
     [property: JsonPropertyName("type")]

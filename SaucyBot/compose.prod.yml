@@ -1,0 +1,87 @@
+services:
+  bot:
+    image: ghcr.io/sn0wcrack/saucybot-discord:2
+    user: 1000:1000
+    deploy:
+      resources:
+        limits:
+          memory: 8G
+    ulimits:
+      nofile: 100000
+      memlock: -1
+    env_file:
+      - .env
+    volumes:
+      - ./appsettings.json:/app/appsettings.json
+    restart: unless-stopped
+    depends_on:
+      cache:
+        condition: service_healthy
+      queue:
+        condition: service_healthy
+      database:
+        condition: service_healthy
+      otel-collector:
+        condition: service_started
+
+  database:
+    image: docker.io/library/mariadb:12.3@sha256:ab1c3dd381940233af12512b97d47b508fd3a0f17fbe3ba388739b7bc17cbc0b
+    ulimits:
+      memlock: -1
+    env_file:
+      - .env
+    ports:
+      - '3306:3306'
+    volumes:
+      - database:/var/lib/mysql
+    restart: unless-stopped
+    healthcheck:
+      test: ['CMD', 'healthcheck.sh', '--connect', '--innodb_initialized']
+      start_period: 10s
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  cache:
+    image: docker.io/valkey/valkey:9-alpine@sha256:a0dbf4c1d5708782907c10e2c72deff317518518b5288a58416981d9db95d30b
+    command: [ 'valkey-server', '--maxmemory', '512mb', '--maxmemory-policy', 'allkeys-lru']
+    ulimits:
+      memlock: -1
+    ports:
+      - '6379:6379'
+    volumes:
+      - cache:/data
+    restart: unless-stopped
+    healthcheck:
+      test: '[ $(valkey-cli -h 127.0.0.1 ping) = "PONG" ]'
+      timeout: 30s
+      retries: 10
+      start_period: 10s
+
+  queue:
+    image: docker.io/valkey/valkey:9-alpine@sha256:a0dbf4c1d5708782907c10e2c72deff317518518b5288a58416981d9db95d30b
+    command: ['valkey-server', '--maxmemory', '512mb', '--maxmemory-policy', 'noeviction']
+    ulimits:
+      memlock: -1
+    volumes:
+        - queue:/data
+    restart: unless-stopped
+    healthcheck:
+      test: '[ $(valkey-cli -h 127.0.0.1 ping) = "PONG" ]'
+      timeout: 30s
+      retries: 10
+      start_period: 10s
+
+  otel-collector:
+    image: docker.io/otel/opentelemetry-collector-contrib:0.160.0@sha256:799dc6cf12c96192af37b5bdba804da8c10b3bc563b43cb90c3f3c58d9572ad6
+    command: ['--config=/etc/otelcol-contrib/config.yaml']
+    volumes:
+      - ./otel-collector-config.yaml:/etc/otelcol-contrib/config.yaml:ro
+    ports:
+      - '8889:8889'
+    restart: unless-stopped
+
+volumes:
+  cache:
+  database:
+  queue:

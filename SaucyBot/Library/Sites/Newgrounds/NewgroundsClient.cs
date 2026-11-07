@@ -1,5 +1,3 @@
-﻿using System.Net.Http.Headers;
-using System.Reflection;
 using AngleSharp.Html.Dom;
 using AngleSharp.Html.Parser;
 using SaucyBot.Services;
@@ -9,35 +7,30 @@ namespace SaucyBot.Library.Sites.Newgrounds;
 public sealed class NewgroundsClient : INewgroundsClient
 {
     private const string BaseUrl = "https://www.newgrounds.com";
-    
+
     private readonly ILogger<NewgroundsClient> _logger;
     private readonly IConfiguration _configuration;
     private readonly ICacheManager _cache;
 
-    private readonly HttpClient _client = new();
+    private readonly HttpClient _client;
 
     public NewgroundsClient(
         ILogger<NewgroundsClient> logger,
         IConfiguration configuration,
-        ICacheManager cacheManager
-    ) {
+        ICacheManager cacheManager,
+        HttpClient client
+    )
+    {
         _logger = logger;
         _configuration = configuration;
         _cache = cacheManager;
-        
-        _client.DefaultRequestHeaders.UserAgent.Add(
-            new ProductInfoHeaderValue("SaucyBot", Assembly.GetEntryAssembly()?.GetName().Version?.ToString())    
-        );
-        
-        _client.DefaultRequestHeaders.Accept.Add(
-            new MediaTypeWithQualityHeaderValue("application/json")
-        );
+        _client = client;
     }
 
     public async Task<NewgroundsArt?> GetArt(string user, string slug)
     {
         var url = $"{BaseUrl}/art/view/{user}/{slug}";
-        
+
         var response = await _cache.Remember(
             $"newgrounds.art_{user}_{slug}",
             async () => await _client.GetStringAsync(url)
@@ -50,7 +43,7 @@ public sealed class NewgroundsClient : INewgroundsClient
 public sealed class NewgroundsArt
 {
     private readonly IHtmlDocument _document;
-    
+
     public NewgroundsArt(string page)
     {
         var parser = new HtmlParser();
@@ -61,11 +54,11 @@ public sealed class NewgroundsArt
     public string? Title() => _document.QuerySelector(".body-guts .column.wide.right .pod-head h2")?.TextContent;
 
     public string? Description() => _document.QuerySelector("#author_comments")?.InnerHtml;
-    
+
     public string? ImageUrl() => _document.QuerySelector(".pod-body .image img")?.GetAttribute("src");
 
     public string Views() =>
         _document.QuerySelector(".sidestats dt:contains('Views')")?.NextElementSibling?.TextContent ?? "0";
-    
+
     public string Score() => _document.QuerySelector("#score_number")?.TextContent ?? "0.00";
 }

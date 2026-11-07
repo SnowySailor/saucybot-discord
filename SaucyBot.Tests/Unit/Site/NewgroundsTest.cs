@@ -1,9 +1,9 @@
 using System.Threading.Tasks;
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
+using NSubstitute;
 using SaucyBot.Library.Sites.Newgrounds;
 using SaucyBot.Site;
-using NSubstitute;
+using SaucyBot.Site.Newgrounds;
 using Xunit;
 
 namespace SaucyBot.Tests.Unit.Site;
@@ -13,8 +13,8 @@ public class NewgroundsTest
     [Fact]
     public async Task AnEmbedIsCreatedForArtPost()
     {
-        var logger = Substitute.For<ILogger<Newgrounds>>();
-        
+        var logger = Substitute.For<ILogger<NewgroundsSite>>();
+
         var client = Substitute.For<INewgroundsClient>();
 
         var html = @"
@@ -40,13 +40,13 @@ public class NewgroundsTest
             .GetArt(Arg.Any<string>(), Arg.Any<string>())
             .Returns(art);
 
-        var site = new Newgrounds(logger, client);
+        var site = new NewgroundsSite(logger, client);
 
-        var matches = site.Match("https://www.newgrounds.com/art/view/testuser/test-slug");
+        var matches = site.Pattern.Matches("https://www.newgrounds.com/art/view/testuser/test-slug");
         var match = matches[0];
 
-        var result = await site.Process(match);
-        
+        var result = await site.Process(new ProcessRequest(match));
+
         Assert.NotNull(result);
         Assert.NotEmpty(result.Embeds);
         Assert.Single(result.Embeds);
@@ -55,21 +55,72 @@ public class NewgroundsTest
     [Fact]
     public async Task NothingIsReturnedWhenTheApiClientReturnsUnsuccessfully()
     {
-        var logger = Substitute.For<ILogger<Newgrounds>>();
-        
+        var logger = Substitute.For<ILogger<NewgroundsSite>>();
+
         var client = Substitute.For<INewgroundsClient>();
 
         client
             .GetArt(Arg.Any<string>(), Arg.Any<string>())
             .Returns((NewgroundsArt?)null);
 
-        var site = new Newgrounds(logger, client);
+        var site = new NewgroundsSite(logger, client);
 
-        var matches = site.Match("https://www.newgrounds.com/art/view/testuser/test-slug");
+        var matches = site.Pattern.Matches("https://www.newgrounds.com/art/view/testuser/test-slug");
         var match = matches[0];
 
-        var result = await site.Process(match);
-        
+        var result = await site.Process(new ProcessRequest(match));
+
         Assert.Null(result);
+    }
+
+    [Fact]
+    public void ArtPostsOnSeparateLinesBeforeAndAfterSameLinePostsAreAllMatched()
+    {
+        var logger = Substitute.For<ILogger<NewgroundsSite>>();
+        var client = Substitute.For<INewgroundsClient>();
+
+        var site = new NewgroundsSite(logger, client);
+
+        var content =
+            "https://www.newgrounds.com/art/view/first/slug1\n" +
+            "https://www.newgrounds.com/art/view/second/slug2 https://www.newgrounds.com/art/view/third/slug3\n" +
+            "https://www.newgrounds.com/art/view/fourth/slug4";
+
+        var matches = site.Pattern.Matches(content);
+
+        Assert.Equal(4, matches.Count);
+
+        Assert.Equal("first", matches[0].Groups["user"].Value);
+        Assert.Equal("slug1", matches[0].Groups["slug"].Value);
+
+        Assert.Equal("second", matches[1].Groups["user"].Value);
+        Assert.Equal("slug2", matches[1].Groups["slug"].Value);
+
+        Assert.Equal("third", matches[2].Groups["user"].Value);
+        Assert.Equal("slug3", matches[2].Groups["slug"].Value);
+
+        Assert.Equal("fourth", matches[3].Groups["user"].Value);
+        Assert.Equal("slug4", matches[3].Groups["slug"].Value);
+    }
+
+    [Fact]
+    public void ArtPostsSurroundedByTextOnASingleLineAreAllMatched()
+    {
+        var logger = Substitute.For<ILogger<NewgroundsSite>>();
+        var client = Substitute.For<INewgroundsClient>();
+
+        var site = new NewgroundsSite(logger, client);
+
+        var content = "art https://www.newgrounds.com/art/view/first/slug1 plus https://www.newgrounds.com/art/view/second/slug2 done";
+
+        var matches = site.Pattern.Matches(content);
+
+        Assert.Equal(2, matches.Count);
+
+        Assert.Equal("first", matches[0].Groups["user"].Value);
+        Assert.Equal("slug1", matches[0].Groups["slug"].Value);
+
+        Assert.Equal("second", matches[1].Groups["user"].Value);
+        Assert.Equal("slug2", matches[1].Groups["slug"].Value);
     }
 }

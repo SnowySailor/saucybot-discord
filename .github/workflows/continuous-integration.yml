@@ -8,6 +8,11 @@ on:
       - '**.cs'
       - '**.csproj'
       - '**.sln'
+      - '**.slnx'
+      - '**/Containerfile'
+      - '**/Containerfile.*'
+      - '**/Dockerfile'
+      - '**/Dockerfile.*'
     tags-ignore:
       - 'v*'
   pull_request:
@@ -16,38 +21,60 @@ on:
       - '**.cs'
       - '**.csproj'
       - '**.sln'
+      - '**.slnx'
+      - '**/Containerfile'
+      - '**/Containerfile.*'
+      - '**/Dockerfile'
+      - '**/Dockerfile.*'
+
+permissions:
+  contents: read
+
+env:
+  DOTNET_VERSION: '10.x'
+  HUSKY: 0
 
 jobs:
   build:
     name: 'Build and Test'
-    continue-on-error: true
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
 
     strategy:
+      fail-fast: false
       matrix:
-        dotnet-version: ['10.x']
+        include:
+          - arch: amd64
+            os: ubuntu-24.04
+          - arch: arm64
+            os: ubuntu-24.04-arm
 
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-      
-      - name: Setup .NET Core SDK ${{ matrix.dotnet-version }}
-        uses: actions/setup-dotnet@c2fa09f4bde5ebb9d1777cf28262a3eb3db3ced7 # v5
-        with:
-          dotnet-version: ${{ matrix.dotnet-version }}
+      - name: 'Checkout Repository'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
+      - name: 'Setup .NET Core SDK ${{ env.DOTNET_VERSION }}'
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6
         with:
-          path: ~/.nuget/packages
-          # Look to see if there is a cache hit for the corresponding requirements file
-          key: ${{ runner.os }}-${{ matrix.dotnet-version }}-nuget-${{ hashFiles('**/packages.lock.json') }}
-          restore-keys: |
-            ${{ runner.os }}-${{ matrix.dotnet-version }}-nuget
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+          cache: true
+          cache-dependency-path: 'SaucyBot/packages.lock.json'
 
-      - name: Install Dependencies
-        run: dotnet restore
-        
-      - name: Build
-        run: dotnet build --configuration Release --no-restore
-        
+      - name: 'Lint'
+        run: |
+          dotnet format --verify-no-changes --verbosity diagnostic
+
+      - name: 'Install Dependencies'
+        run: |
+          dotnet restore -a ${{ matrix.arch }} -restoreProperty:RestoreLockedMode=true
+
+      - name: 'Build'
+        run: |
+          dotnet build --configuration Release --no-restore
+
       - name: Test
-        run: dotnet test --no-restore --verbosity normal
+        run: |
+          dotnet test --no-restore --verbosity normal
+
+  container:
+    name: 'Build Container'
+    uses: ./.github/workflows/build-container.yml

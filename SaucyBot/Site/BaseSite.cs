@@ -1,22 +1,17 @@
-﻿using System.Text.RegularExpressions;
+using System.Reflection;
+using System.Text.RegularExpressions;
 using Discord;
-using Discord.WebSocket;
-using SaucyBot.Site.Response;
 
 namespace SaucyBot.Site;
 
-public abstract class BaseSite
+public abstract class BaseSite : IBaseSite
 {
-    public virtual string Identifier => "Base";
+    public string Identifier => GetType().GetCustomAttribute<SiteIdentifierAttribute>()?.Identifier
+        ?? throw new InvalidOperationException($"Site type '{GetType().Name}' has no site identifier.");
 
-    protected virtual string Pattern { set; get; } = string.Empty;
+    public virtual Regex Pattern { get; protected init; } = new(string.Empty);
 
-    protected virtual Color Color => Color.Default;
-    
-    public MatchCollection Match(string message)
-    {
-        return Regex.Matches(message, Pattern, RegexOptions.IgnoreCase | RegexOptions.Multiline | RegexOptions.Compiled);
-    }
+    public virtual Color Color => Color.Default;
 
-    public abstract Task<ProcessResponse?> Process(Match match, SocketUserMessage? message = null);
+    public abstract Task<ProcessResponse?> Process(ProcessRequest request);
 }

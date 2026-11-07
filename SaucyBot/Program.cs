@@ -1,5 +1,10 @@
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Options;
 using SaucyBot;
 using SaucyBot.Database;
+using SaucyBot.Diagnostics;
+using SaucyBot.Extensions;
+using SaucyBot.Library.Sites;
 using SaucyBot.Library.Sites.ArtStation;
 using SaucyBot.Library.Sites.BlueSky;
 using SaucyBot.Library.Sites.DeviantArt;
@@ -11,72 +16,69 @@ using SaucyBot.Library.Sites.Misskey;
 using SaucyBot.Library.Sites.Newgrounds;
 using SaucyBot.Library.Sites.Pixiv;
 using SaucyBot.Library.Sites.Twitter;
+using SaucyBot.Options;
+using SaucyBot.Options.Sites;
+using SaucyBot.Queue;
 using SaucyBot.Services;
 using SaucyBot.Services.Cache;
 using SaucyBot.Site;
 using Serilog;
 
 await Host.CreateDefaultBuilder(args)
-    .UseSerilog((context, configuration) =>
-    {
-        configuration
-            .ReadFrom.Configuration(context.Configuration)
-            .Enrich.FromLogContext()
-            .WriteTo.Console(outputTemplate: "[{Timestamp:yyyy-MM-dd HH:mm:ss} {Level:u3}] {Message:lj}{NewLine}{Exception}");
-    })
+    .UseSerilog((context, configuration) => ApplySerilogConfiguration(configuration, context.Configuration))
     .ConfigureServices((context, services) =>
     {
         var configuration = context.Configuration;
-        
-        services.AddDbContext<DatabaseContext>(ServiceLifetime.Transient);
-        services.AddDbContextFactory<DatabaseContext>(lifetime: ServiceLifetime.Transient);
 
-        services.AddMemoryCache();
-        services.AddStackExchangeRedisCache(options =>
-        {
-            options.Configuration = configuration.GetSection("Cache:Redis:ConnectionString").Get<string>();
-        });
-        
-        services.AddSingleton<SiteManager>();
-        services.AddSingleton<MessageManager>();
-        services.AddSingleton<DatabaseManager>();
-        services.AddSingleton<ICacheManager, CacheManager>();
+        services.Configure<BotOptions>(configuration.GetSection("Bot"));
+        services.Configure<DatabaseOptions>(configuration.GetSection("Database"));
+        services.Configure<CacheOptions>(configuration.GetSection("Cache"));
+        services.Configure<PixivOptions>(configuration.GetSection("Sites:Pixiv"));
+        services.Configure<FxTwitterOptions>(configuration.GetSection("Sites:FxTwitter"));
+        services.Configure<MisskeyOptions>(configuration.GetSection("Sites:Misskey"));
+        services.Configure<BlueskyOptions>(configuration.GetSection("Sites:Bluesky"));
+        services.Configure<ArtStationOptions>(configuration.GetSection("Sites:ArtStation"));
+        services.Configure<ExHentaiOptions>(configuration.GetSection("Sites:ExHentai"));
+        services.Configure<HentaiFoundryOptions>(configuration.GetSection("Sites:HentaiFoundry"));
+        services.Configure<FurAffinityOptions>(configuration.GetSection("Sites:FurAffinity"));
 
-        services.AddSingleton<MemoryCacheDriver>();
-        services.AddSingleton<RedisCacheDriver>();
+        services.AddSaucyBotTelemetry(
+            Options.Create(configuration.BindOrDefault<TelemetryOptions>("OpenTelemetry")));
+        services.AddSaucyBotSentry(
+            Options.Create(configuration.BindOrDefault<SentryOptions>("Sentry")));
 
-        services.AddSingleton<IGuildConfigurationManager, GuildConfigurationManager>();
-        
-        services.AddSingleton<IFurAffinityClient, FaExportClient>();
-        services.AddSingleton<IPixivClient, PixivClient>();
-        services.AddSingleton<IArtStationClient, ArtStationClient>();
-        services.AddSingleton<IHentaiFoundryClient, HentaiFoundryClient>();
-        services.AddSingleton<INewgroundsClient, NewgroundsClient>();
-        services.AddSingleton<IExHentaiClient, ExHentaiClient>();
-        services.AddSingleton<IDeviantArtOpenEmbedClient, DeviantArtOpenEmbedClient>();
-        services.AddSingleton<IDeviantArtClient, DeviantArtClient>();
-        services.AddSingleton<IE621Client, E621Client>();
-        services.AddSingleton<IFxTwitterClient, FxTwitterClient>();
-        services.AddSingleton<ITwitterImageSyndicationClient, TwitterImageSyndicationClient>();
-        services.AddSingleton<IMisskeyClient, MisskeyClient>();
-        services.AddSingleton<IVixBlueskyClient, VixBlueskyClient>();
+        services.AddSaucyBotDatabase();
 
-        services.AddSingleton<FurAffinity>();
-        services.AddSingleton<Pixiv>();
-        services.AddSingleton<ArtStation>();
-        services.AddSingleton<HentaiFoundry>();
-        services.AddSingleton<FxTwitter>();
-        services.AddSingleton<DeviantArt>();
-        services.AddSingleton<E621>();
-        services.AddSingleton<ExHentai>();
-        services.AddSingleton<Newgrounds>();
-        services.AddSingleton<Reddit>();
-        services.AddSingleton<Misskey>();
-        services.AddSingleton<Bluesky>();
-        services.AddSingleton<Instagram>();
+        services.AddSaucyBotCache(configuration);
+        services.AddSaucyBotQueue(configuration);
+        services.AddSaucyBotServices();
+        services.AddSaucyBotSites();
 
+        services.AddFurAffinityClient(configuration);
+        services.AddArtStationClient();
+        services.AddNewgroundsClient();
+        services.AddDeviantArtOpenEmbedClient();
+        services.AddE621Client();
+        services.AddFxTwitterClient();
+        services.AddVxTwitterClient();
+        services.AddTwitterImageSyndicationClient();
+        services.AddMisskeyClient();
+        services.AddVixBlueskyClient();
+        services.AddPixivClient(configuration);
+        services.AddExHentaiClient(configuration);
+        services.AddHentaiFoundryClient(configuration);
+        services.AddDeviantArtClient();
+        services.AddFileDownloadClient();
+
+        services.AddSingleton<DiscordClientHost>();
         services.AddHostedService<Worker>();
     })
     .UseConsoleLifetime()
     .Build()
     .RunAsync();
+
+static void ApplySerilogConfiguration(LoggerConfiguration loggerConfiguration, IConfiguration configuration) =>
+    loggerConfiguration
+        .ReadFrom.Configuration(configuration)
+        .Enrich.FromLogContext()
+        .WriteTo.Console(outputTemplate: "[{Timestamp:yyyy-MM-dd HH:mm:ss} {Level:u3}] {Message:lj}{NewLine}{Exception}");

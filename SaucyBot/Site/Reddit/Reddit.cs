@@ -1,0 +1,35 @@
+using System.Net;
+using System.Text.RegularExpressions;
+using Discord;
+
+namespace SaucyBot.Site.Reddit;
+
+
+[SiteIdentifier("Reddit")]
+public sealed partial class RedditSite : BaseSite
+{
+    [GeneratedRegex(@"https?://(www\.)?reddit\.com/media\?url=(?<url>[A-Z0-9\%\.]+)", RegexOptions.IgnoreCase | RegexOptions.Multiline)]
+    private static partial Regex RedditPattern();
+
+    public override Regex Pattern => RedditPattern();
+
+    public override Color Color => new(0xFF4500);
+
+    private readonly ILogger<RedditSite> _logger;
+
+    public RedditSite(ILogger<RedditSite> logger)
+    {
+        _logger = logger;
+    }
+
+    public override async Task<ProcessResponse?> Process(ProcessRequest request)
+    {
+        var originalUrl = WebUtility.UrlDecode(request.Match.Groups["url"].Value);
+
+        return new ProcessResponse
+        {
+            Text = originalUrl,
+            IsNsfw = true, // No way to determine this currently
+        };
+    }
+}

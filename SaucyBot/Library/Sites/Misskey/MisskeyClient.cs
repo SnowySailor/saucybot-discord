@@ -1,7 +1,4 @@
-﻿using System.Net;
-using System.Net.Http.Headers;
 using System.Net.Http.Json;
-using System.Reflection;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using SaucyBot.Services;
@@ -11,20 +8,13 @@ namespace SaucyBot.Library.Sites.Misskey;
 public sealed class MisskeyClient : IMisskeyClient
 {
     private readonly ICacheManager _cache;
-    
-    private readonly HttpClient _client = new();
-    
-    public MisskeyClient(ICacheManager cacheManager)
+
+    private readonly HttpClient _client;
+
+    public MisskeyClient(ICacheManager cacheManager, HttpClient client)
     {
         _cache = cacheManager;
-        
-        _client.DefaultRequestHeaders.UserAgent.Add(
-            new ProductInfoHeaderValue("SaucyBot", Assembly.GetEntryAssembly()?.GetName().Version?.ToString())    
-        );
-        
-        _client.DefaultRequestHeaders.Accept.Add(
-            new MediaTypeWithQualityHeaderValue("application/json")
-        );
+        _client = client;
     }
 
     public async Task<ShowNoteResponse?> ShowNote(string url, string id)
@@ -32,7 +22,7 @@ public sealed class MisskeyClient : IMisskeyClient
         var response = await _cache.Remember($"misskey.{url}.note_{id}", async () =>
         {
             var request = JsonContent.Create(new { noteId = id });
-            
+
             var response = await _client.PostAsync($"{url}/api/notes/show", request);
 
             return await response.Content.ReadAsStringAsync();

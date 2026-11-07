@@ -1,27 +1,20 @@
-﻿using System.Net;
+using System.Net;
 using System.Text;
-using AngleSharp;
-using AngleSharp.Html.Parser;
+using System.Text.RegularExpressions;
 using Markdig;
 
 namespace SaucyBot.Common;
 
-public static class Helper
+public static partial class Helper
 {
     private const string Characters = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-    
-    public static async Task<string?> HtmlToPlainText(string html)
-    {
-        // Since HTML does not respect newlines, we need to remove them before processing to ensure
-        // our plaintext has the exact number of newlines that would be displayed on the site or thereabouts at least.
-        html = html
-            .Replace("\n", "")
-            .Replace("\r", "");
-        
-        var parser = new HtmlParser();
-        var document = await parser.ParseDocumentAsync(html);
 
-        return document.Body?.ToHtml(new PlainTextMarkupFormatter());
+    [GeneratedRegex(@"[\u2700-\u27BF]|[\uE000-\uF8FF]|\uD83C[\uDC00-\uDFFF]|\uD83D[\uDC00-\uDFFF]|[\u2011-\u26FF]|\uD83E[\uDD10-\uDDFF]")]
+    private static partial Regex EmojiRegex();
+
+    public static string? HtmlToMarkdown(string html)
+    {
+        return HtmlToMarkdownConverter.Convert(html);
     }
 
     public static string MarkdownToPlainText(string markdown)
@@ -29,13 +22,13 @@ public static class Helper
         return Markdown.ToPlainText(markdown);
     }
 
-    public static async Task<string> ProcessDescription(string description, int maxLength = 300, string suffix = "...")
+    public static string ProcessDescription(string description, int maxLength = 500, string suffix = "...")
     {
-        description = await HtmlToPlainText(description) ?? "";
-        
+        description = HtmlToMarkdown(description) ?? "";
+
         if (description.Length > maxLength)
         {
-            description = $"{description.AsSpan(0, maxLength)}{suffix}";
+            description = string.Concat(description.AsSpan(0, maxLength), suffix);
         }
 
         return description;
@@ -44,6 +37,18 @@ public static class Helper
     public static string RandomString(int length = 8)
     {
         return new string(Enumerable.Repeat(Characters, length).Select(s => s[Random.Shared.Next(s.Length)]).ToArray());
+    }
+
+    public static string EscapeDiscordMarkdown(string text)
+    {
+        return text
+            .Replace(@"\", @"\\")
+            .Replace(">", @"\>")
+            .Replace("*", @"\*")
+            .Replace("_", @"\_")
+            .Replace("~", @"\~")
+            .Replace("`", @"\`")
+            .Replace("|", @"\|");
     }
 
     /// <summary>
@@ -58,7 +63,7 @@ public static class Helper
         {
             return null;
         }
-        
+
         var anchorIndex = uri.IndexOf('#');
         var uriToBeAppended = uri;
         var anchorText = "";
@@ -68,7 +73,7 @@ public static class Helper
             anchorText = uri[anchorIndex..];
             uriToBeAppended = uri[..anchorIndex];
         }
-        
+
         var hasQuery = uriToBeAppended.Contains('?');
 
         var sb = new StringBuilder();
@@ -84,5 +89,12 @@ public static class Helper
 
         sb.Append(anchorText);
         return sb.ToString();
+    }
+
+    public static string RemoveEmojis(string input)
+    {
+        return string.IsNullOrEmpty(input)
+            ? input
+            : EmojiRegex().Replace(input, "");
     }
 }

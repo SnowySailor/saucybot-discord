@@ -1,5 +1,3 @@
-﻿using System.Net.Http.Headers;
-using System.Reflection;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using SaucyBot.Services;
@@ -9,23 +7,17 @@ namespace SaucyBot.Library.Sites.ArtStation;
 public sealed class ArtStationClient : IArtStationClient
 {
     private const string BaseUrl = "https://www.artstation.com";
-    
+
     private readonly ILogger<ArtStationClient> _logger;
     private readonly ICacheManager _cache;
-    
-    private readonly HttpClient _client = new();
 
-    public ArtStationClient(ILogger<ArtStationClient> logger, ICacheManager cacheManager)
+    private readonly HttpClient _client;
+
+    public ArtStationClient(ILogger<ArtStationClient> logger, ICacheManager cacheManager, HttpClient client)
     {
         _logger = logger;
         _cache = cacheManager;
-        
-        _client.DefaultRequestHeaders.UserAgent.Add(
-            new ProductInfoHeaderValue("SaucyBot", Assembly.GetEntryAssembly()?.GetName().Version?.ToString())    
-        );
-        _client.DefaultRequestHeaders.Accept.Add(
-            new MediaTypeWithQualityHeaderValue("application/json")
-        );
+        _client = client;
     }
 
     public async Task<Project?> GetProject(string hash)

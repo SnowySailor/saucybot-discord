@@ -1,14 +1,17 @@
-﻿using System.Globalization;
+using System.Globalization;
 
 namespace SaucyBot.Extensions;
 
 public static class StringExtensions
 {
-    public static bool IsIn(this string source, params string[] values)
+    extension(string source)
     {
-        return values.Contains(source);
+        public bool IsIn(params string[] values)
+        {
+            return values.Contains(source);
+        }
+
+        public string ToTitleCase() =>
+            CultureInfo.InvariantCulture.TextInfo.ToTitleCase(source.ToLowerInvariant());
     }
-    
-    public static string ToTitleCase(this string s) =>
-        CultureInfo.InvariantCulture.TextInfo.ToTitleCase(s.ToLowerInvariant());
 }

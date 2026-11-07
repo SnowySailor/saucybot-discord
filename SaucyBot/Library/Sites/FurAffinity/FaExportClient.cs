@@ -1,37 +1,29 @@
-﻿using System.Net;
-using System.Net.Http.Headers;
-using System.Reflection;
+using System.Net;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Polly;
 using Polly.Fallback;
 using Polly.Retry;
+using SaucyBot.Extensions;
 using SaucyBot.Services;
 
 namespace SaucyBot.Library.Sites.FurAffinity;
 
-public sealed class FaExportClient : IFurAffinityClient
+public sealed class FaExportClient : IFaExportClient
 {
     private const string BaseUrl = "https://faexport.spangle.org.uk";
 
     private readonly ICacheManager _cache;
-    
-    private readonly HttpClient _client = new();
+
+    private readonly HttpClient _client;
 
     private readonly ResiliencePipeline<string?> _pipeline;
 
-    public FaExportClient(ICacheManager cacheManager)
+    public FaExportClient(ICacheManager cacheManager, HttpClient client)
     {
         _cache = cacheManager;
-        
-        _client.DefaultRequestHeaders.UserAgent.Add(
-            new ProductInfoHeaderValue("SaucyBot", Assembly.GetEntryAssembly()?.GetName().Version?.ToString())    
-        );
-        
-        _client.DefaultRequestHeaders.Accept.Add(
-            new MediaTypeWithQualityHeaderValue("application/json")
-        );
-        
+        _client = client;
+
         _pipeline = new ResiliencePipelineBuilder<string?>()
             .AddFallback(new FallbackStrategyOptions<string?>
             {
@@ -39,7 +31,7 @@ public sealed class FaExportClient : IFurAffinityClient
                 ShouldHandle = arguments => arguments.Outcome switch
                 {
                     { Exception: HttpRequestException e } => e.StatusCode == HttpStatusCode.NotFound ? PredicateResult.True() : PredicateResult.False(),
-                    _ => PredicateResult.False(), 
+                    _ => PredicateResult.False(),
                 }
             })
             .AddRetry(new RetryStrategyOptions<string?>
@@ -70,6 +62,7 @@ public sealed class FaExportClient : IFurAffinityClient
 }
 
 #region Response Types
+
 public sealed record FaExportSubmission(
     [property: JsonPropertyName("title")]
     string Title,
@@ -117,5 +110,8 @@ public sealed record FaExportSubmission(
     string Rating,
     [property: JsonPropertyName("keywords")]
     string[] Keywords
-);
+)
+{
+    public bool IsNsfw => Rating != "general";
+};
 #endregion

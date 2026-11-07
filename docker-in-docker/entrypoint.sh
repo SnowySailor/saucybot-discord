@@ -33,4 +33,4 @@ docker load -i /app/docker-in-docker/images/bot.tar >> /proc/1/fd/1 2>&1
 
 echo "Starting docker" >> /proc/1/fd/1;
 
-cd /app/SaucyBot/ && docker-compose -f docker-compose.prod.yml -f ../docker-in-docker/docker-compose.dind.yml up
+cd /app/SaucyBot/ && docker-compose -f compose.prod.yml -f ../docker-in-docker/docker-compose.dind.yml up

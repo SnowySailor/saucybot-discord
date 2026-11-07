@@ -1,0 +1,150 @@
+Production Setup
+==========
+
+> Setting up SaucyBot for production using a container runtime with Compose support.
+
+Prerequisites
+----------
+
+- [Git](https://git-scm.com/)
+- A container runtime with Compose support, such as:
+  - [Docker](https://docs.docker.com/get-docker/) (includes Docker Compose)
+  - [Podman](https://podman.io/) with [Podman Compose](https://github.com/containers/podman-compose) or Docker Compose
+
+> [!CAUTION]
+> Ensure the full file path to your working directory contains no spaces.
+
+Step 1: Clone the repository
+----------
+
+```shell
+git clone https://github.com/Sn0wCrack/saucybot-discord.git
+cd saucybot-discord
+```
+
+Step 2: Copy configuration files
+----------
+
+From the `SaucyBot` directory, copy the production template files into place:
+
+```shell
+cd SaucyBot
+cp compose.prod.yml compose.yml
+cp .env.example .env
+cp appsettings.json.example appsettings.json
+```
+
+Step 3: Configure the bot
+----------
+
+Follow the [Configuration Reference](configuration.md) to set up your `.env` and `appsettings.json` files.
+
+For production, use the **Docker Production** `.env` values and set `DotnetEnvironment` to `Production`.
+
+Step 4: Start the bot
+----------
+
+From the `SaucyBot` directory, run:
+
+```shell
+docker compose up -d
+```
+
+This will build the bot image and start four containers:
+
+| Service | Image | Exposed Port |
+|---|---|---|
+| `bot` | Built from `SaucyBot/` | — |
+| `database` | `mariadb:12.3` | 3306 |
+| `cache` | `valkey/valkey:9-alpine` | 6379 |
+| `queue` | `valkey/valkey:9-alpine` | — |
+
+Step 5: Verify running containers
+----------
+
+```shell
+docker compose ps
+```
+
+All four services (`bot`, `database`, `cache`, `queue`) should show status `Up` or `running`.
+
+Before starting or after changing Compose files, validate the fully resolved configuration:
+
+```shell
+docker compose -f compose.prod.yml config
+```
+
+The cache and queue are separate Valkey instances. Cache data is persistent, but queue
+data is intentionally not: the queue has no volume and uses `noeviction`, disabled RDB
+saves, and disabled AOF. The queue has no host port; the bot reaches it at `queue:6379`.
+The bot also has no `/tmp` tmpfs mount, so its temporary files remain disk-backed in the
+container writable layer.
+
+Step 6: View logs
+----------
+
+```shell
+docker compose logs -f
+```
+
+Append a service name to view logs for a single container:
+
+```shell
+docker compose logs -f bot
+docker compose logs -f database
+docker compose logs -f cache
+docker compose logs -f queue
+```
+
+### Operational checks
+
+Check queue memory and server state from inside the queue container:
+
+```shell
+docker compose exec queue valkey-cli INFO memory
+docker compose exec queue valkey-cli INFO persistence
+docker compose exec queue valkey-cli XINFO STREAM saucybot:messages
+docker compose exec queue valkey-cli XPENDING saucybot:messages saucybot-workers
+```
+
+Use `XINFO STREAM` and `XPENDING` to monitor stream length, oldest entry age, and
+consumer-group backlog. `saucybot.queue.depth` represents available work and does
+not include items currently claimed by workers. Use `saucybot.workers.active`,
+`saucybot.queue.lease_renewed`, `saucybot.queue.lease_lost`,
+`saucybot.queue.reclaimed`, `saucybot.queue.handler_outcomes`,
+`saucybot.queue.handler_duration`, `saucybot.queue.backend_operation_timed_out`,
+`saucybot.queue.handler_overdue`, and `saucybot.queue.worker_restarted` to investigate
+in-flight work, backend timeouts, slow handlers, and worker failures. The backend
+timeout metric uses fixed operation names. The overdue-handler metric records handlers
+that remain active after cancellation. These metrics use fixed work-type, outcome, and
+operation labels. They do not include message or delivery IDs. OpenTelemetry exports them
+when enabled. Configure the exporter with the
+`OpenTelemetry__OtlpEndpoint` and related environment variables described in the
+[configuration reference](configuration.md#opentelemetry); keep endpoint credentials in `.env`, not tracked files.
+Set `Sentry__Dsn` to a Sentry project DSN to receive runtime error reports (empty disables it).
+
+The default queue lease settings are a five-second heartbeat, a five-second
+recovery scan, and a 30-second pending-entry idle timeout. A healthy worker
+renews its lease while processing. If it stops renewing, another worker can
+recover the item after the idle timeout. Redis Streams provide at-least-once
+delivery, so message processing must tolerate duplicate delivery.
+
+The queue rejects completion from a worker after another worker claims the item.
+It cannot stop a paused handler from resuming and repeating external side effects.
+Make each message handler safe to run more than once. Use a stable message key to prevent duplicate
+side effects when the service supports that feature.
+
+Stop all bot workers before you deploy this queue version. Older workers do not
+use lease tokens. They can delete work after a new worker claims it.
+
+The bot stops admitting work during shutdown. It drains admitted work for up to
+`ShutdownDrainTimeout`. Unfinished messages stay pending for recovery.
+
+Do not treat separate logical Valkey databases as resource isolation. Cache and queue
+must remain separate Valkey services so their memory limits, eviction policies, and
+restart behavior are independent.
+
+Database auto-migration
+----------
+
+When `MARIADB_AUTO_UPGRADE=true` is set in your `.env`, MariaDB will automatically apply any required database schema changes on startup. No manual migration steps are needed.

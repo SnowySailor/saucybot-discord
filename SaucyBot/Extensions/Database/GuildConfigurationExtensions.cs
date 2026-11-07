@@ -1,4 +1,4 @@
-﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 using SaucyBot.Database;
 using SaucyBot.Database.Models;
 
@@ -9,18 +9,22 @@ public static class GuildConfigurationExtensions
     public static async Task<GuildConfiguration> FindOrCreateGuildConfigurationByGuildId(
         this DatabaseContext context,
         ulong guildId
-    ) {
-        var config = await context.Set<GuildConfiguration>().FirstOrDefaultAsync(gc => gc.GuildId == guildId);
+    )
+    {
+        var guildConfiguration = await context.Set<GuildConfiguration>()
+            .Include(gc => gc.RestrictedRoles)
+            .Include(gc => gc.DisabledSites)
+            .FirstOrDefaultAsync(gc => gc.GuildId == guildId);
 
-        if (config is not null)
+        if (guildConfiguration is not null)
         {
-            return config;
+            return guildConfiguration;
         }
 
-        config = new GuildConfiguration { GuildId = guildId };
-        await context.AddAsync(config);
+        guildConfiguration = new GuildConfiguration { GuildId = guildId };
+        await context.AddAsync(guildConfiguration);
         await context.SaveChangesAsync();
 
-        return config;
+        return guildConfiguration;
     }
 }

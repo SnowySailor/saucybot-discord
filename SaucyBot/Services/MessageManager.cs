@@ -1,153 +1,262 @@
-﻿using Discord;
+using Discord;
 using Discord.WebSocket;
+using Microsoft.Extensions.Options;
 using SaucyBot.Extensions;
 using SaucyBot.Extensions.Discord;
 using SaucyBot.Library;
-using SaucyBot.Site.Response;
+using SaucyBot.Options;
+using SaucyBot.Site;
 
 namespace SaucyBot.Services;
 
 public sealed class MessageManager
 {
     private readonly ILogger<MessageManager> _logger;
-    private readonly IConfiguration _configuration;
+    private readonly BotOptions _botOptions;
 
-    public MessageManager(ILogger<MessageManager> logger, IConfiguration configuration)
+    public MessageManager(
+        ILogger<MessageManager> logger,
+        IOptions<BotOptions> botOptions
+    )
     {
         _logger = logger;
-        _configuration = configuration;
+        _botOptions = botOptions.Value;
     }
 
-    public async Task Send(SocketUserMessage received, ProcessResponse response)
+    public async Task Send(SocketUserMessage message, ProcessResponse response)
+        => await Send(new DiscordMessageContext(message), response, CancellationToken.None);
+
+    public async Task Send(IMessageContext context, ProcessResponse response, CancellationToken cancellationToken = default)
     {
+        if (!ShouldSend(context, response))
+        {
+            return;
+        }
+
+        var target = await context.ResolveMessageAsync(cancellationToken);
+
+        if (target is null)
+        {
+            _logger.LogWarning("Unable to resolve original message {MessageId} for a response", context.Id);
+            return;
+        }
+
         var messages = await PartitionMessages(response);
-        
+
         foreach (var message in messages)
         {
             if (message.IsEmpty())
             {
-                _logger.LogDebug("Empty message was created from: \"{OriginalMessage}\"", received.Content);
+                _logger.LogDebug("Empty message was created from: \"{OriginalMessage}\"", context.Content);
                 continue;
             }
-            
-            await received.ReplyAsync(
-                message.Files,
-                message.Content,
-                allowedMentions: AllowedMentions.None,
-                embeds: message.Embeds.ToArray()
-            );
+
+            switch (message)
+            {
+                case ComponentsV2Message c:
+                    await target.ReplyAsync(
+                        c.Files,
+                        c.Content,
+                        allowedMentions: AllowedMentions.None,
+                        components: c.Components,
+                        flags: MessageFlags.ComponentsV2
+                    );
+                    break;
+                case EmbedMessage e:
+                    await target.ReplyAsync(
+                        e.Files,
+                        e.Content,
+                        allowedMentions: AllowedMentions.None,
+                        embeds: e.Embeds.ToArray()
+                    );
+                    break;
+                default:
+                    await target.ReplyAsync(
+                        message.Content,
+                        allowedMentions: AllowedMentions.None
+                    );
+                    break;
+            }
         }
     }
 
-    public async Task Send(SocketSlashCommand received, ProcessResponse response)
+    public async Task Send(SocketSlashCommand command, ProcessResponse response)
     {
+        if (!ShouldSend(command, response))
+        {
+            return;
+        }
+
         var messages = await PartitionMessages(response);
-        
+
         foreach (var message in messages)
         {
             if (message.IsEmpty())
             {
-                _logger.LogDebug("Empty message was created from: \"{OriginalMessage}\"", received.Data.ToString());
+                _logger.LogDebug("Empty message was created from: \"{OriginalMessage}\"", command.Data.ToString());
                 continue;
             }
 
-            await received.FollowupWithFilesAsync(
-                message.Files,
-                message.Content,
-                allowedMentions: AllowedMentions.None,
-                embeds: message.Embeds.ToArray()
-            );
+            switch (message)
+            {
+                case ComponentsV2Message c:
+                    await command.FollowupWithFilesAsync(
+                        c.Files,
+                        c.Content,
+                        allowedMentions: AllowedMentions.None,
+                        components: c.Components,
+                        flags: MessageFlags.ComponentsV2
+                    );
+                    break;
+                case EmbedMessage e:
+                    await command.FollowupWithFilesAsync(
+                        e.Files,
+                        e.Content,
+                        allowedMentions: AllowedMentions.None,
+                        embeds: e.Embeds.ToArray()
+                    );
+                    break;
+                default:
+                    await command.FollowupAsync(
+                        message.Content,
+                        allowedMentions: AllowedMentions.None
+                    );
+                    break;
+            }
         }
     }
 
-    public async Task<List<Message>> PartitionMessages(ProcessResponse response)
+    private bool ShouldSend(SocketUserMessage message, ProcessResponse response)
     {
-        return response switch
+        // Determine if we are able to post this content freely in the channel we received the message in.
+        var restrictNsfw = _botOptions.RestrictNSFW;
+
+        if (!restrictNsfw || !response.IsNsfw)
         {
-            { Embeds.Count: > 1 } => await HandleMultipleEmbeds(response),
-            { Embeds.Count: 1 } => await HandleSingleEmbed(response),
-            { Files.Count: >= 1 } => await HandleFiles(response),
-            _ => new List<Message> { new(response.Text ?? "") },
+            return true;
+        }
+
+        return message.Channel switch
+        {
+            // Threads need their parent channel checked instead
+            SocketThreadChannel { ParentChannel: ITextChannel { IsNsfw: true } } => true,
+            ITextChannel { IsNsfw: true } => true,
+            _ => false,
         };
     }
 
-    private Task<List<Message>> HandleFiles(ProcessResponse response)
+    private bool ShouldSend(IMessageContext context, ProcessResponse response)
+    {
+        var restrictNsfw = _botOptions.RestrictNSFW;
+        return !restrictNsfw || !response.IsNsfw || context.IsNsfw;
+    }
+
+    private bool ShouldSend(SocketSlashCommand command, ProcessResponse response)
+    {
+        // TODO: Determine if this is from a Guild or a DM and restrict based on that.
+        var restrictNsfw = _botOptions.RestrictNSFW;
+        return !restrictNsfw || !response.IsNsfw;
+    }
+
+    public static async Task<List<Message>> PartitionMessages(ProcessResponse response)
+    {
+        return response switch
+        {
+            { Components: not null } => await HandleComponentsV2(response),
+            { Embeds.Count: > 1 } => await HandleMultipleEmbeds(response),
+            { Embeds.Count: 1 } => await HandleSingleEmbed(response),
+            { Files.Count: >= 1 } => await HandleFiles(response),
+            _ => [new EmbedMessage { Content = response.Text }],
+        };
+    }
+
+    private static Task<List<Message>> HandleComponentsV2(ProcessResponse response)
+    {
+        var files = response.Files.Count > 0 ? response.Files : [];
+
+        return Task.FromResult<List<Message>>([
+            new ComponentsV2Message
+            {
+                Content = response.Text,
+                Files = files,
+                Components = response.Components!,
+            }
+        ]);
+    }
+
+    private static Task<List<Message>> HandleFiles(ProcessResponse response)
     {
         var messages = new List<Message>();
 
         if (response.Text is not null)
         {
-            messages.Add(new Message(response.Text));
+            messages.Add(new EmbedMessage { Content = response.Text });
         }
 
         if (response.Files.Count == 1)
         {
-            messages.Add(new Message(Files: response.Files));
+            messages.Add(new EmbedMessage { Files = response.Files });
 
             return Task.FromResult(messages);
         }
 
-        // We split up file messages into groups of files under the file size limit
-        // This is faster than sending the images back one-by-one
         var segments = new List<List<FileAttachment>>();
-        
+
         foreach (var file in response.Files)
         {
             if (segments.Count == 0)
             {
-                segments.Add(new List<FileAttachment> { file });
+                segments.Add([file]);
                 continue;
             }
 
             var index = segments.Count - 1;
 
-            // If we're about to reach maximum message size, move onto the next index
-            // If we've reached the end of the array, add a new item to the array as well
             var totalSize = segments[index].Aggregate(0L, (accumulator, item) => accumulator + item.Stream.Length);
 
             if (file.Stream.Length + totalSize >= Constants.MaximumFileSize)
             {
-                segments.Add(new List<FileAttachment> { file });
+                segments.Add([file]);
                 continue;
             }
-            
-            // If we've not reached the maximum message size, add to the current index
+
             segments[index].Add(file);
         }
 
-        messages.AddRange(segments.Select(files => new Message(Files: files)));
+        messages.AddRange(segments.Select(files => new EmbedMessage { Files = files }));
 
         return Task.FromResult(messages);
     }
 
-    private Task<List<Message>> HandleSingleEmbed(ProcessResponse response)
+    private static Task<List<Message>> HandleSingleEmbed(ProcessResponse response)
     {
         var messages = new List<Message>();
 
         var embed = response.Embeds.First();
-        
-        var message = new Message(
-            Embeds: new List<Embed> { embed },
-            Files: response.Files
-        );
-        
+
+        var message = new EmbedMessage
+        {
+            Embeds = [embed],
+            Files = response.Files,
+        };
+
         messages.Add(message);
-        
+
         if (response.Text is not null)
         {
-            messages.Add(new Message(response.Text));
+            messages.Add(new EmbedMessage { Content = response.Text });
         }
-        
+
         return Task.FromResult(messages);
     }
 
-    private Task<List<Message>> HandleMultipleEmbeds(ProcessResponse response)
+    private static Task<List<Message>> HandleMultipleEmbeds(ProcessResponse response)
     {
         var messages = new List<Message>();
 
         if (response.Text is not null)
         {
-            messages.Add(new Message(response.Text));
+            messages.Add(new EmbedMessage { Content = response.Text });
         }
 
         for (var i = 0; i < response.Embeds.Count - 1; i += Constants.MaximumEmbedsPerMessage)
@@ -160,26 +269,20 @@ public sealed class MessageManager
                 var relatedFiles = GetRelatedFiles(embed, response.Files);
                 files.AddRange(relatedFiles);
             }
-            
-            messages.Add(new Message(Embeds: chunk, Files: files));
+
+            messages.Add(new EmbedMessage { Embeds = chunk, Files = files });
         }
-        
+
         return Task.FromResult(messages);
     }
 
-    private List<FileAttachment> GetRelatedFiles(IEmbed embed, IEnumerable<FileAttachment> files)
+    private static List<FileAttachment> GetRelatedFiles(Embed embed, IEnumerable<FileAttachment> files)
     {
-        var embedUrls = new List<string>();
-
-        if (embed.Image?.Url is not null)
-        {
-            embedUrls.Add(embed.Image?.Url.Replace("attachment://", "")!);
-        }
-
-        if (embed.Video?.Url is not null)
-        {
-            embedUrls.Add(embed.Video?.Url.Replace("attachment://", "")!);
-        }
+        var embedUrls = new[] { embed.Image?.Url, embed.Video?.Url }
+            .Where(url => url is not null)
+            // URL can't be null at this point, dotnet just doesn't understand that
+            .Select(url => url!.Replace("attachment://", ""))
+            .ToList();
 
         return files
             .Where(item => embedUrls.Contains(item.FileName))
@@ -187,17 +290,28 @@ public sealed class MessageManager
     }
 }
 
-public record Message(
-    string? Content = null,
-    List<Embed>? Embeds = null,
-    List<FileAttachment>? Files = null
-)
-{
-    public List<Embed> Embeds { get; } = Embeds ?? new List<Embed>();
-    public List<FileAttachment> Files { get; } = Files ?? new List<FileAttachment>();
+#region Response Types
 
-    public bool IsEmpty()
-    {
-        return Content is null or "" && Embeds.Count == 0 && Files.Count == 0;
-    }
+public abstract record Message
+{
+    public string? Content { get; init; }
+    public List<FileAttachment> Files { get; init; } = [];
+
+    public virtual bool IsEmpty() => Content is null or "" && Files.Count == 0;
 }
+
+public sealed record EmbedMessage : Message
+{
+    public List<Embed> Embeds { get; init; } = [];
+
+    public override bool IsEmpty() => base.IsEmpty() && Embeds.Count == 0;
+}
+
+public sealed record ComponentsV2Message : Message
+{
+    public required MessageComponent? Components { get; init; }
+
+    public override bool IsEmpty() => base.IsEmpty() && Components is null;
+}
+
+#endregion

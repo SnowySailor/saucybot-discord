@@ -1,48 +1,38 @@
-﻿using SaucyBot.Services.Cache;
+using Microsoft.Extensions.Options;
+using SaucyBot.Options;
+using SaucyBot.Services.Cache;
 
 namespace SaucyBot.Services;
 
 public sealed class CacheManager : ICacheManager
 {
     private readonly ILogger<CacheManager> _logger;
-    private readonly IConfiguration _configuration;
     private readonly IServiceProvider _serviceProvider;
 
     private readonly ICacheDriver _driver;
-    
-    public CacheManager(ILogger<CacheManager> logger, IConfiguration configuration, IServiceProvider serviceProvider)
+
+    public CacheManager(ILogger<CacheManager> logger, IOptions<CacheOptions> cacheOptions, IServiceProvider serviceProvider)
     {
         _logger = logger;
-        _configuration = configuration;
         _serviceProvider = serviceProvider;
 
-        _driver = CreateDriver();
+        _driver = CreateDriver(cacheOptions.Value);
     }
 
-    private ICacheDriver CreateDriver()
+    private ICacheDriver CreateDriver(CacheOptions cacheOptions)
     {
-        var driver = _configuration.GetSection("Cache:Driver").Get<string?>() ?? "memory";
+        var driver = cacheOptions.Driver;
 
-        var driverType = driver.ToLowerInvariant().Trim() switch
-        {
-            "redis" => typeof(RedisCacheDriver),
-            "memory" => typeof(MemoryCacheDriver),
-            _ => typeof(MemoryCacheDriver),
-        };
-
-        if (_serviceProvider.GetService(driverType) is not ICacheDriver instance)
-        {
-            throw new Exception($"Unable to create Cache Driver of type {driver}");
-        }
-
-        return instance;
+        return _serviceProvider.GetKeyedService<ICacheDriver>(driver)
+               ?? throw new InvalidOperationException(
+                    $"Cache driver '{driver}' is not registered.");
     }
 
     public async Task<T?> Get<T>(object key)
     {
         return await _driver.Get<T>(key);
     }
-    
+
     public async Task<T> Set<T>(object key, T value)
     {
         return await _driver.Set(key, value);
@@ -70,11 +60,13 @@ public sealed class CacheManager : ICacheManager
 
         var store = await value.Invoke();
 
-        if (store is not null)
+        if (store is null)
         {
-            _logger.LogDebug("Setting cache item with key: {Key} and value: {Value}", key, store);
-            await Set<T>(key, store);
+            return store;
         }
+
+        _logger.LogDebug("Setting cache item with key: {Key} and value: {Value}", key, store);
+        await Set<T>(key, store);
 
         return store;
     }
@@ -91,11 +83,13 @@ public sealed class CacheManager : ICacheManager
 
         var store = await value.Invoke();
 
-        if (store is not null)
+        if (store is null)
         {
-            _logger.LogDebug("Setting cache item with key: {Key} and value: {Value} and expiry: {Expiry}", key, store, expiry);
-            await Set<T>(key, store, expiry);
+            return store;
         }
+
+        _logger.LogDebug("Setting cache item with key: {Key} and value: {Value} and expiry: {Expiry}", key, store, expiry);
+        await Set<T>(key, store, expiry);
 
         return store;
     }

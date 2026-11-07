@@ -1,40 +1,32 @@
 using System.Net;
-using System.Net.Http.Headers;
-using System.Reflection;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Polly;
 using Polly.Fallback;
 using Polly.Retry;
+using SaucyBot.Extensions;
 using SaucyBot.Services;
 
 namespace SaucyBot.Library.Sites.BlueSky;
 
-public class VixBlueskyClient: IVixBlueskyClient
+public class VixBlueskyClient : IVixBlueskyClient
 {
-    private const string BaseUrl = "https://bskyx.app";
+    private const string BaseUrl = "https://bskx.app";
 
     private readonly ILogger<VixBlueskyClient> _logger;
-    
+
     private readonly ICacheManager _cache;
-    
-    private readonly HttpClient _client = new();
-    
+
+    private readonly HttpClient _client;
+
     private readonly ResiliencePipeline<string?> _pipeline;
 
-    public VixBlueskyClient(ILogger<VixBlueskyClient> logger, ICacheManager cacheManager)
+    public VixBlueskyClient(ILogger<VixBlueskyClient> logger, ICacheManager cacheManager, HttpClient client)
     {
         _logger = logger;
         _cache = cacheManager;
-        
-        _client.DefaultRequestHeaders.UserAgent.Add(
-            new ProductInfoHeaderValue("SaucyBot", Assembly.GetEntryAssembly()?.GetName().Version?.ToString())    
-        );
-        
-        _client.DefaultRequestHeaders.Accept.Add(
-            new MediaTypeWithQualityHeaderValue("application/json")
-        );
-        
+        _client = client;
+
         _pipeline = new ResiliencePipelineBuilder<string?>()
             .AddFallback(new FallbackStrategyOptions<string?>
             {
@@ -42,7 +34,7 @@ public class VixBlueskyClient: IVixBlueskyClient
                 ShouldHandle = arguments => arguments.Outcome switch
                 {
                     { Exception: HttpRequestException e } => e.StatusCode == HttpStatusCode.NotFound ? PredicateResult.True() : PredicateResult.False(),
-                    _ => PredicateResult.False(), 
+                    _ => PredicateResult.False(),
                 }
             })
             .AddRetry(new RetryStrategyOptions<string?>
@@ -60,7 +52,7 @@ public class VixBlueskyClient: IVixBlueskyClient
             .AddTimeout(TimeSpan.FromSeconds(15))
             .Build();
     }
-    
+
     public async Task<VixBlueskyResponse?> GetPost(string name, string identifier)
     {
         var response = await _cache.Remember(
@@ -81,14 +73,14 @@ public class VixBlueskyClient: IVixBlueskyClient
         {
             _logger.LogDebug(e, "Failed to deserialize VixBluesky response, response not JSON or is malformed.");
             return null;
-        } 
+        }
     }
 }
 
 #region Response Types
 
 public sealed record VixBlueskyResponse(
-    [property: JsonPropertyName("posts")] 
+    [property: JsonPropertyName("posts")]
     List<VixBlueskyPost> Posts
 );
 
@@ -128,7 +120,25 @@ public sealed record VixBlueskyRecord(
     [property: JsonPropertyName("text")]
     string Text,
     [property: JsonPropertyName("embed")]
-    VixBlueskyRecordEmbed? Embed
+    VixBlueskyRecordEmbed? Embed,
+    [property: JsonPropertyName("labels")]
+    VixBlueSkyRecordLabels? RecordLabels
+)
+{
+    public bool IsNsfw => RecordLabels is not null && RecordLabels.Values.Select(x => x.Value.IsIn(["porn", "mature"])).Any();
+};
+
+public sealed record VixBlueSkyRecordLabels(
+    [property: JsonPropertyName("$type")]
+    string Type,
+    [property: JsonPropertyName("values")]
+    List<VixBlueSkyRecordLabelValue> Values
+);
+
+public sealed record VixBlueSkyRecordLabelValue(
+    [property: JsonPropertyName("val")]
+    string Value
+
 );
 
 public sealed record VixBlueskyRecordEmbed(

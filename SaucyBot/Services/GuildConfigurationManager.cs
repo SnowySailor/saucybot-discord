@@ -1,21 +1,23 @@
-﻿using Discord;
+using Discord;
 using Discord.WebSocket;
 using Microsoft.EntityFrameworkCore;
+using SaucyBot.Database;
 using SaucyBot.Database.Models;
-using SaucyBot.Extensions;
 using SaucyBot.Extensions.Database;
 
 namespace SaucyBot.Services;
 
 public sealed class GuildConfigurationManager : IGuildConfigurationManager
 {
-    private readonly DatabaseManager _database;
+    private readonly DatabaseContext _context;
     private readonly ICacheManager _cache;
-    
-    public GuildConfigurationManager(DatabaseManager database, ICacheManager cache)
+    private readonly ILogger<GuildConfigurationManager> _logger;
+
+    public GuildConfigurationManager(DatabaseContext context, ICacheManager cache, ILogger<GuildConfigurationManager> logger)
     {
-        _database = database;
+        _context = context;
         _cache = cache;
+        _logger = logger;
     }
 
     public async Task<GuildConfiguration?> GetByChannel(IMessageChannel messageChannel)
@@ -30,16 +32,88 @@ public sealed class GuildConfigurationManager : IGuildConfigurationManager
 
     public async Task<GuildConfiguration?> GetByGuildId(ulong guildId)
     {
-        var result = await _cache.Remember(
-            CacheKey(guildId), 
+        return await _cache.Remember(
+            CacheKey(guildId),
             TimeSpan.FromDays(7),
-            async () => await _database
-                .Context()
-                .FindOrCreateGuildConfigurationByGuildId(guildId)
+            async () => await _context.FindOrCreateGuildConfigurationByGuildId(guildId)
+        );
+    }
+
+    public async Task<bool> UpdateGuildConfiguration(GuildConfiguration guildConfiguration)
+    {
+        var existing = await _context.GuildConfigurations
+            .Include(gc => gc.RestrictedRoles)
+            .Include(gc => gc.DisabledSites)
+            .FirstOrDefaultAsync(gc => gc.Id == guildConfiguration.Id);
+
+        if (existing is null)
+        {
+            return false;
+        }
+
+        existing.MaximumEmbeds = guildConfiguration.MaximumEmbeds;
+        existing.MaximumPixivImages = guildConfiguration.MaximumPixivImages;
+        existing.MaximumArtStationImages = guildConfiguration.MaximumArtStationImages;
+        existing.SendMatchedMessage = guildConfiguration.SendMatchedMessage;
+        existing.RestrictToRoles = guildConfiguration.RestrictToRoles;
+        existing.UpdatedAt = DateTime.UtcNow;
+
+        var allowedRoles = guildConfiguration.RestrictedRoles.Select(role => new GuildConfigurationRestrictedRole
+        {
+            GuildConfigurationId = existing.Id,
+            RoleId = role.RoleId,
+        });
+
+        var disabledSites = guildConfiguration.DisabledSites.Select(site => new GuildConfigurationDisabledSite
+        {
+            GuildConfigurationId = existing.Id,
+            Site = site.Site,
+        });
+
+        existing.DisabledSites.Sync(
+            incomingCollection: disabledSites,
+            currentKeySelector: entity => entity.Site,
+            incomingKeySelector: dto => dto.Site,
+            updateAction: (entity, dto) =>
+            {
+                entity.GuildConfigurationId = dto.GuildConfigurationId;
+                entity.Site = dto.Site;
+                entity.UpdatedAt = DateTime.UtcNow;
+            },
+            createAction: dto => new GuildConfigurationDisabledSite
+            {
+                GuildConfigurationId = dto.GuildConfigurationId,
+                Site = dto.Site,
+            },
+            context: _context
         );
 
-        return result;
+        existing.RestrictedRoles.Sync(
+            incomingCollection: allowedRoles,
+            currentKeySelector: entity => entity.RoleId,
+            incomingKeySelector: dto => dto.RoleId,
+            updateAction: (entity, dto) =>
+            {
+                entity.GuildConfigurationId = dto.GuildConfigurationId;
+                entity.RoleId = dto.RoleId;
+                entity.UpdatedAt = DateTime.UtcNow;
+            },
+            createAction: dto => new GuildConfigurationRestrictedRole
+            {
+                GuildConfigurationId = dto.GuildConfigurationId,
+                RoleId = dto.RoleId,
+            },
+            context: _context
+        );
+
+        await _context.SaveChangesAsync();
+
+        await _cache.Set(CacheKey(existing), existing, TimeSpan.FromDays(7));
+
+        return true;
     }
 
     private static string CacheKey(ulong guildId) => $"database.guild_configuration_{guildId}";
+
+    private static string CacheKey(GuildConfiguration guildConfiguration) => CacheKey(guildConfiguration.GuildId);
 }

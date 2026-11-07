@@ -1,4 +1,4 @@
-﻿using Discord;
+using Discord;
 
 namespace SaucyBot.Library;
 
@@ -20,6 +20,12 @@ public static class Constants
     public const int MaximumEmbedsPerMessage = 4;
 
     /// <summary>
+    /// Discord's maximum size for an embed Payload is 6kb. We set this slightly lower than that to allow for the data
+    /// in all fields related to the embed to be taken into account when determining if an embed can be made or not.
+    /// </summary>
+    public const int MaximumEmbedBodyLength = 5_000;
+
+    /// <summary>
     /// The URL to the Twitter favicon that Discord uses for their embeds.
     /// </summary>
     public const string TwitterIconUrl =
@@ -37,48 +43,49 @@ public static class Constants
         "https://s3.arkjp.net/misskey/webpublic-0c66b1ca-b8c0-4eaa-9827-47674f4a1580.png";
 
     public const string BlueskyIconUrl = "https://bsky.app/static/apple-touch-icon.png";
-    
+
     #endregion
-    
+
     #region Bot
 
     public const GatewayIntents RequiredGatewayIntents =
         GatewayIntents.Guilds | GatewayIntents.GuildMessages | GatewayIntents.MessageContent;
 
-    public const ChannelPermission RequiredChannelPermissions = ChannelPermission.ReadMessageHistory |
+    public const ChannelPermission RequiredTextChannelPermissions = ChannelPermission.ReadMessageHistory |
                                                                  ChannelPermission.SendMessages |
                                                                  ChannelPermission.EmbedLinks |
                                                                  ChannelPermission.AttachFiles;
 
-    public const ChannelPermission RequiredThreadPermissions =
-        RequiredChannelPermissions | ChannelPermission.SendMessagesInThreads; 
-    
+    public const ChannelPermission RequiredThreadChannelPermissions =
+        RequiredTextChannelPermissions | ChannelPermission.SendMessagesInThreads;
+
     /// <summary>
     /// The default maximum number of embeds to attempt to send in a single processing run.
     ///
     /// This is primarily used as a fallback value.
     /// </summary>
     public const int DefaultMaximumEmbeds = 8;
-    
+
     /// <summary>
     /// The default maximum number of Pixiv images to return for a Pixiv illustration.
     ///
     /// This is primarily used as a fallback value.
     /// </summary>
     public const int DefaultMaximumPixivImages = 5;
-    
+
     /// <summary>
     /// The default maximum number of ArtStation images to return for an ArtStation project.
     ///
     /// This is primarily used as a fallback value.
     /// </summary>
     public const int DefaultMaximumArtStationImages = 8;
-    
-    
+
+
     /// <summary>
     /// The default setting for sending the "Matched to site X, please wait..." message for guilds.
     /// </summary>
     public const bool DefaultSendMatchedMessage = true;
+
 
     #endregion
 }

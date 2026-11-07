@@ -1,6 +1,3 @@
-﻿using System.Net;
-using System.Net.Http.Headers;
-using AngleSharp.Dom;
 using AngleSharp.Html.Dom;
 using AngleSharp.Html.Parser;
 using SaucyBot.Services;
@@ -10,42 +7,24 @@ namespace SaucyBot.Library.Sites.HentaiFoundry;
 public sealed class HentaiFoundryClient : IHentaiFoundryClient
 {
     private const string BaseUrl = "https://www.hentai-foundry.com";
-    
+
     private readonly ILogger<HentaiFoundryClient> _logger;
     private readonly IConfiguration _configuration;
     private readonly ICacheManager _cache;
 
-    private readonly CookieContainer _cookieContainer = new();
     private readonly HttpClient _client;
-    
+
     public HentaiFoundryClient(
         ILogger<HentaiFoundryClient> logger,
         IConfiguration configuration,
-        ICacheManager cacheManager
-    ) {
+        ICacheManager cacheManager,
+        HttpClient client
+    )
+    {
         _logger = logger;
         _configuration = configuration;
         _cache = cacheManager;
-        
-        var httpClientHandler = new HttpClientHandler
-        {
-            CookieContainer = _cookieContainer,
-            UseCookies = true,
-            AllowAutoRedirect = true,
-        };
-
-        _client = new HttpClient(httpClientHandler);
-        
-        _client.DefaultRequestHeaders.Add("User-Agent",
-            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/51.0.2704.103 Safari/537.36");
-        
-        _client.DefaultRequestHeaders.Accept.Add(
-            new MediaTypeWithQualityHeaderValue("application/json")
-        );
-        
-        _client.DefaultRequestHeaders.Accept.Add(
-            new MediaTypeWithQualityHeaderValue("text/html")    
-        );
+        _client = client;
     }
 
     public async Task<bool> Agree()
@@ -69,9 +48,9 @@ public sealed class HentaiFoundryClient : IHentaiFoundryClient
 public sealed class HentaiFoundryPicture
 {
     private const string BaseUrl = "https://www.hentai-foundry.com";
-    
+
     private readonly IHtmlDocument _document;
-    
+
     public HentaiFoundryPicture(string page)
     {
         var parser = new HtmlParser();
@@ -100,7 +79,7 @@ public sealed class HentaiFoundryPicture
 
         return DateTimeOffset.Parse(datetime);
     }
-    
+
     public string Views()
     {
         var views = _document.QuerySelector("#pictureGeneralInfoBox .boxbody .column span:contains('Views')")

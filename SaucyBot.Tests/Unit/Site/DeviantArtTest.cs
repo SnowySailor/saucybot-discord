@@ -1,10 +1,11 @@
-﻿using System.Linq;
+using System.Linq;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
+using NSubstitute;
 using SaucyBot.Library.Sites.DeviantArt;
 using SaucyBot.Site;
-using Microsoft.Extensions.Configuration;
-using NSubstitute;
+using SaucyBot.Site.DeviantArt;
 using Xunit;
 
 namespace SaucyBot.Tests.Unit.Site;
@@ -15,12 +16,12 @@ public class DeviantArtTest
     public async Task SingleEmbedIsReturnedWhenTheApiClientReturnsSuccessfully()
     {
         // Post: https://www.deviantart.com/shadeofshinon/art/Frostbreath-VI-943346591
-        
-        var logger = Substitute.For<ILogger<DeviantArt>>();
+
+        var logger = Substitute.For<ILogger<DeviantArtSite>>();
 
         var config = new ConfigurationBuilder()
             .Build();
-        
+
         var client = Substitute.For<IDeviantArtClient>();
         var oembedClient = Substitute.For<IDeviantArtOpenEmbedClient>();
 
@@ -35,64 +36,64 @@ public class DeviantArtTest
             "https://www.deviantart.com",
             "https://images-wixmp-ed30a86b8c4ca887773594c2.wixmp.com/f/76098ac8-04ab-4784-b382-88ca082ba9b1/dfln6vz-82332f76-8119-4c2a-af75-ae585a623056.jpg/v1/fit/w_300,h_707,q_70,strp/frostbreath_vi_by_shadeofshinon_dfln6vz-300w.jpg?token=eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ1cm46YXBwOjdlMGQxODg5ODIyNjQzNzNhNWYwZDQxNWVhMGQyNmUwIiwiaXNzIjoidXJuOmFwcDo3ZTBkMTg4OTgyMjY0MzczYTVmMGQ0MTVlYTBkMjZlMCIsIm9iaiI6W1t7ImhlaWdodCI6Ijw9NzA3IiwicGF0aCI6IlwvZlwvNzYwOThhYzgtMDRhYi00Nzg0LWIzODItODhjYTA4MmJhOWIxXC9kZmxuNnZ6LTgyMzMyZjc2LTgxMTktNGMyYS1hZjc1LWFlNTg1YTYyMzA1Ni5qcGciLCJ3aWR0aCI6Ijw9MTAwMCJ9XV0sImF1ZCI6WyJ1cm46c2VydmljZTppbWFnZS5vcGVyYXRpb25zIl19.nOe99K1ZJdJSDakOZWL5iGD9Bl60YRgIRqsooYPsCE4"
         );
-        
+
         oembedClient
             .Get(Arg.Any<string>())
             .Returns(openEmbedResponse);
 
-        var site = new DeviantArt(
+        var site = new DeviantArtSite(
             logger,
             config,
             client,
             oembedClient
         );
 
-        var match = site.Match("https://www.deviantart.com/shadeofshinon/art/Frostbreath-VI-943346591").First();
+        var match = site.Pattern.Matches("https://www.deviantart.com/shadeofshinon/art/Frostbreath-VI-943346591").First();
 
-        var response = await site.Process(match);
-        
+        var response = await site.Process(new ProcessRequest(match));
+
         Assert.NotNull(response);
         Assert.Single(response.Embeds);
 
         var embed = response.Embeds.First();
-        
+
         Assert.Equal(openEmbedResponse.Title, embed.Title);
         Assert.Equal(openEmbedResponse.Url, embed.Image?.Url);
         Assert.Equal(openEmbedResponse.AuthorName, embed.Author?.Name);
         Assert.Equal(openEmbedResponse.AuthorUrl, embed.Author?.Url);
-        
+
         Assert.Equal("DeviantArt", embed.Footer?.Text);
     }
-    
+
     [Fact]
     public async Task NothingIsReturnedWhenTheApiClientReturnsUnsuccessfully()
     {
         // Post: https://www.deviantart.com/shadeofshinon/art/Frostbreath-VI-943346591
 
-        var logger = Substitute.For<ILogger<DeviantArt>>();
+        var logger = Substitute.For<ILogger<DeviantArtSite>>();
 
         var config = new ConfigurationBuilder()
             .Build();
-        
+
         var client = Substitute.For<IDeviantArtClient>();
         var oembedClient = Substitute.For<IDeviantArtOpenEmbedClient>();
-        
-        
+
+
         oembedClient
             .Get(Arg.Any<string>())
-            .Returns((OpenEmbedResponse?) null);
+            .Returns((OpenEmbedResponse?)null);
 
-        var site = new DeviantArt(
+        var site = new DeviantArtSite(
             logger,
             config,
             client,
             oembedClient
         );
 
-        var match = site.Match("https://www.deviantart.com/shadeofshinon/art/Frostbreath-VI-943346591").First();
+        var match = site.Pattern.Matches("https://www.deviantart.com/shadeofshinon/art/Frostbreath-VI-943346591").First();
 
-        var response = await site.Process(match);
-        
+        var response = await site.Process(new ProcessRequest(match));
+
         Assert.Null(response);
     }
 }

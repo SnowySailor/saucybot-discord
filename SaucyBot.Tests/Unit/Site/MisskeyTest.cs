@@ -1,13 +1,15 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
-using Discord;
-using Discord.WebSocket;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Time.Testing;
+using NSubstitute;
 using SaucyBot.Library.Sites.Misskey;
 using SaucyBot.Site;
-using NSubstitute;
+using SaucyBot.Site.Misskey;
 using Xunit;
 
 namespace SaucyBot.Tests.Unit.Site;
@@ -17,15 +19,15 @@ public class MisskeyTest
     [Fact]
     public async Task AnEmbedIsCreatedForEachImageFile()
     {
-        var logger = Substitute.For<ILogger<Misskey>>();
-        
+        var logger = Substitute.For<ILogger<MisskeySite>>();
+
         var config = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
             {
                 {"Sites:Misskey:Delay", "3"}
             })
             .Build();
-        
+
         var client = Substitute.For<IMisskeyClient>();
 
         var note = new ShowNoteResponse(
@@ -46,12 +48,12 @@ public class MisskeyTest
             .ShowNote(Arg.Any<string>(), Arg.Any<string>())
             .Returns(note);
 
-        var site = new Misskey(logger, config, client);
+        var site = new MisskeySite(logger, config.MisskeyOptions(), client, TimeProvider.System);
 
-        var match = site.Match("https://misskey.io/notes/note123").First();
+        var match = site.Pattern.Matches("https://misskey.io/notes/note123").First();
 
-        var result = await site.Process(match);
-        
+        var result = await site.Process(new ProcessRequest(match));
+
         Assert.NotNull(result);
         Assert.NotEmpty(result.Embeds);
         Assert.Equal(2, result.Embeds.Count);
@@ -60,42 +62,42 @@ public class MisskeyTest
     [Fact]
     public async Task NothingIsReturnedWhenTheApiClientReturnsUnsuccessfully()
     {
-        var logger = Substitute.For<ILogger<Misskey>>();
-        
+        var logger = Substitute.For<ILogger<MisskeySite>>();
+
         var config = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
             {
                 {"Sites:Misskey:Delay", "3"}
             })
             .Build();
-        
+
         var client = Substitute.For<IMisskeyClient>();
 
         client
             .ShowNote(Arg.Any<string>(), Arg.Any<string>())
             .Returns((ShowNoteResponse?)null);
 
-        var site = new Misskey(logger, config, client);
+        var site = new MisskeySite(logger, config.MisskeyOptions(), client, TimeProvider.System);
 
-        var match = site.Match("https://misskey.io/notes/note123").First();
+        var match = site.Pattern.Matches("https://misskey.io/notes/note123").First();
 
-        var result = await site.Process(match);
-        
+        var result = await site.Process(new ProcessRequest(match));
+
         Assert.Null(result);
     }
 
     [Fact]
     public async Task NonImageFilesAreSkipped()
     {
-        var logger = Substitute.For<ILogger<Misskey>>();
-        
+        var logger = Substitute.For<ILogger<MisskeySite>>();
+
         var config = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
             {
                 {"Sites:Misskey:Delay", "3"}
             })
             .Build();
-        
+
         var client = Substitute.For<IMisskeyClient>();
 
         var note = new ShowNoteResponse(
@@ -116,12 +118,12 @@ public class MisskeyTest
             .ShowNote(Arg.Any<string>(), Arg.Any<string>())
             .Returns(note);
 
-        var site = new Misskey(logger, config, client);
+        var site = new MisskeySite(logger, config.MisskeyOptions(), client, TimeProvider.System);
 
-        var match = site.Match("https://misskey.io/notes/note123").First();
+        var match = site.Pattern.Matches("https://misskey.io/notes/note123").First();
 
-        var result = await site.Process(match);
-        
+        var result = await site.Process(new ProcessRequest(match));
+
         Assert.NotNull(result);
         Assert.NotEmpty(result.Embeds);
         Assert.Single(result.Embeds);
@@ -188,5 +190,39 @@ public class MisskeyTest
 
         // Verify that ShouldEmbed would return false
         Assert.False(note.Files.Count > 1 || note.Files.Any(file => file.IsSensitive));
+    }
+
+    [Fact]
+    public async Task CancelledContextStopsTheConfiguredEmbedDelay()
+    {
+        var config = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                {"Sites:Misskey:Delay", "1"}
+            })
+            .Build();
+        var client = Substitute.For<IMisskeyClient>();
+        var apiResult = new TaskCompletionSource<ShowNoteResponse?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        client.ShowNote(Arg.Any<string>(), Arg.Any<string>()).Returns(apiResult.Task);
+        var timeProvider = new FakeTimeProvider();
+        var site = new MisskeySite(Substitute.For<ILogger<MisskeySite>>(), config.MisskeyOptions(), client, timeProvider);
+        using var cancellation = new CancellationTokenSource();
+        var message = Substitute.For<IMessageContext>();
+        var match = site.Pattern.Matches("https://misskey.io/notes/note123").First();
+        var processing = site.Process(new ProcessRequest(
+            match,
+            Context: new ProcessingContext(true, Message: message, CancellationToken: cancellation.Token)));
+        apiResult.SetResult(new ShowNoteResponse(
+            "note123",
+            "2024-01-01T00:00:00Z",
+            "testuser",
+            "Test post content",
+            "public",
+            [new MisskeyFile("file1", "2024-01-01T00:00:00Z", "image1.jpg", "image/jpeg", 1024, false, "https://example.com/image1.jpg", "https://example.com/thumb1.jpg")],
+            new MisskeyUser("user123", "Test User", "testuser", "https://example.com/avatar.jpg")));
+        timeProvider.Advance(TimeSpan.FromSeconds(1));
+        cancellation.Cancel();
+
+        await Assert.ThrowsAsync<TaskCanceledException>(() => processing);
     }
 }

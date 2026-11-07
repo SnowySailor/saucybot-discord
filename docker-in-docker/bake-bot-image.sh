@@ -16,4 +16,5 @@ docker buildx build \
     --build-arg CONFIGURATION=Release \
     -t saucybot-bot:baked \
     -o type=docker,dest=images/bot.tar \
+    -f ../SaucyBot/Containerfile \
     ../SaucyBot

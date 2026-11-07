@@ -1,14 +1,9 @@
-﻿using System.Net;
-using System.Net.Http.Headers;
 using System.Text.RegularExpressions;
-using AngleSharp;
-using AngleSharp.Css.Dom;
 using AngleSharp.Dom;
-using SaucyBot.Library.Sites.HentaiFoundry;
 using AngleSharp.Html.Dom;
 using AngleSharp.Html.Parser;
+using Microsoft.Extensions.Configuration;
 using SaucyBot.Services;
-using IConfiguration = Microsoft.Extensions.Configuration.IConfiguration;
 
 namespace SaucyBot.Library.Sites.ExHentai;
 
@@ -18,7 +13,6 @@ public sealed class ExHentaiClient : IExHentaiClient
     private readonly IConfiguration _configuration;
     private readonly ICacheManager _cache;
 
-    private readonly CookieContainer _cookieContainer = new();
     private readonly HttpClient _client;
 
     private const string ExHentaiDomain = "exhentai.org";
@@ -27,49 +21,14 @@ public sealed class ExHentaiClient : IExHentaiClient
     public ExHentaiClient(
         ILogger<ExHentaiClient> logger,
         IConfiguration configuration,
-        ICacheManager cacheManager
-    )  {
+        ICacheManager cacheManager,
+        HttpClient client
+    )
+    {
         _logger = logger;
         _configuration = configuration;
         _cache = cacheManager;
-        
-        _cookieContainer.Add(
-            new Cookie(
-                "ipb_member_id", 
-                _configuration.GetSection("Sites:ExHentai:Cookies:MemberId").Get<string>(),
-                "/",
-                ExHentaiDomain
-            )
-         );
-        
-        _cookieContainer.Add(
-            new Cookie(
-                "ipb_pass_hash", 
-                _configuration.GetSection("Sites:ExHentai:Cookies:PasswordHash").Get<string>(),
-                "/",
-                ExHentaiDomain
-            )
-        );
-        
-        var httpClientHandler = new HttpClientHandler
-        {
-            CookieContainer = _cookieContainer,
-            UseCookies = true,
-            AllowAutoRedirect = true,
-        };
-        
-        _client = new HttpClient(httpClientHandler);
-        
-        _client.DefaultRequestHeaders.Add("User-Agent",
-            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/51.0.2704.103 Safari/537.36");
-        
-        _client.DefaultRequestHeaders.Accept.Add(
-            new MediaTypeWithQualityHeaderValue("application/json")
-        );
-        
-        _client.DefaultRequestHeaders.Accept.Add(
-            new MediaTypeWithQualityHeaderValue("text/html")    
-        );
+        _client = client;
     }
 
     public async Task<ExHentaiGalleryPage?> GetGallery(ExHentaiGalleryRequest request)
@@ -112,9 +71,12 @@ public sealed record ExHentaiGalleryRequest(ExHentaiRequestMode Mode, string Id,
     }
 }
 
-public sealed class ExHentaiGalleryPage
+public sealed partial class ExHentaiGalleryPage
 {
     private readonly IHtmlDocument _document;
+
+    [GeneratedRegex(@"url\((?<url>.*)\)", RegexOptions.IgnoreCase)]
+    private static partial Regex CssBackgroundUrlRegex();
 
     public ExHentaiGalleryPage(string page)
     {
@@ -133,9 +95,9 @@ public sealed class ExHentaiGalleryPage
 
     public string? Length() =>
         MetaContainer()?.QuerySelector("tr > td:contains('Length:')")?.NextSibling?.TextContent.Replace("pages", "").Trim();
-    
+
     public string? AuthorName() => _document.QuerySelector(".gm #gmid #gdn a")?.TextContent;
-    
+
     public string? AuthorUrl() => _document.QuerySelector(".gm #gmid #gdn a")?.GetAttribute("href");
 
     public string? ImageUrl()
@@ -147,7 +109,7 @@ public sealed class ExHentaiGalleryPage
             return null;
         }
 
-        var match = Regex.Match(style, @"url\((?<url>.*)\)", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+        var match = CssBackgroundUrlRegex().Match(style);
 
         return match.Groups["url"].Value;
     }
@@ -160,7 +122,7 @@ public sealed class ExHentaiGalleryPage
         {
             return null;
         }
-        
+
         return DateTimeOffset.Parse(dateTime);
     }
 

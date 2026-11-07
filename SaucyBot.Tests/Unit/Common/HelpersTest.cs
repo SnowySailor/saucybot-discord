@@ -1,5 +1,4 @@
 using System.Collections.Generic;
-using System.Threading.Tasks;
 using SaucyBot.Common;
 using Xunit;
 
@@ -15,21 +14,21 @@ public class HelpersTest
     public void RandomStringWillBeGeneratedWithTheCorrectLength(int length)
     {
         var random = Helper.RandomString(length);
-        
+
         Assert.Equal(length, random.Length);
     }
-    
+
     [Theory]
     [InlineData(100)]
     [InlineData(200)]
     [InlineData(20)]
     [InlineData(8)]
-    public async Task ProcessDescriptionWillLimitStringLength(int maxLength)
+    public void ProcessDescriptionWillLimitStringLength(int maxLength)
     {
         var random = Helper.RandomString(maxLength * 2);
 
-        var processed = await Helper.ProcessDescription(random, maxLength, "");
-        
+        var processed = Helper.ProcessDescription(random, maxLength, "");
+
         Assert.NotEqual(random.Length, processed.Length);
         Assert.Equal(processed.Length, maxLength);
     }
@@ -39,62 +38,76 @@ public class HelpersTest
     [InlineData(200, "")]
     [InlineData(20, "--")]
     [InlineData(8, "?!")]
-    public async Task ProcessDescriptionWillAddSuffixWhenLimited(int maxLength, string suffix)
+    public void ProcessDescriptionWillAddSuffixWhenLimited(int maxLength, string suffix)
     {
         var random = Helper.RandomString(maxLength * 2);
 
-        var processed = await Helper.ProcessDescription(random, maxLength, suffix);
-        
+        var processed = Helper.ProcessDescription(random, maxLength, suffix);
+
         Assert.Equal(maxLength + suffix.Length, processed.Length);
         Assert.Equal(suffix, processed[^suffix.Length..]);
     }
-    
+
     [Theory]
     [InlineData("<p>Test</p>")]
     [InlineData("<p><span>Test</span> Test</p>")]
     [InlineData("<h1>TEST</h1>")]
     [InlineData("<script>let test = 'test';</script>")]
-    public async Task ProcessDescriptionWillRemoveHtml(string description)
+    public void ProcessDescriptionWillRemoveHtml(string description)
     {
-        var processed = await Helper.ProcessDescription(description);
-        
+        var processed = Helper.ProcessDescription(description);
+
         Assert.NotEqual(description, processed);
     }
-    
+
     [Theory]
     [InlineData("<p>Test</p>Test")]
     [InlineData("Test<br>Test")]
-    public async Task ProcessDescriptionWillRetainBreaksAndParagraphs(string description)
+    public void ProcessDescriptionWillRetainBreaksAndParagraphs(string description)
     {
-        var processed = await Helper.ProcessDescription(description);
-        
+        var processed = Helper.ProcessDescription(description);
+
         Assert.Contains("\n", processed);
     }
-    
+
     [Fact]
-    public async Task ProcessDescriptionWillRetainBreaksAndRemoveExistingNewLines()
+    public void ProcessDescriptionWillRetainBreaksAndRemoveExistingNewLines()
     {
         const string description = "Test\n<br>Test";
 
-        var processed = await Helper.ProcessDescription(description);
-        
+        var processed = Helper.ProcessDescription(description);
+
         Assert.Contains("\n", processed);
         Assert.DoesNotContain("\n\n", processed);
     }
 
     [Theory]
+    [InlineData("<i>A<br>B<br>C</i>", "*A*\n*B*\n*C*")]
+    [InlineData("<b>A<br>B<br>C</b>", "**A**\n**B**\n**C**")]
+    [InlineData("<strong>A<br>B</strong>", "**A**\n**B**")]
+    [InlineData("<em>A<br>B</em>", "*A*\n*B*")]
+    [InlineData("<i>A<br><b>B</b></i>", "*A*\n***B***")]
+    [InlineData("<i>\n    A\n    <br>\n    B\n</i>", "*A*\n*B*")]
+    [InlineData("<b>\n    A\n    <br>\n    B\n</b>", "**A**\n**B**")]
     [InlineData("<p>Hello World</p>", "\n\nHello World")]
     [InlineData("<div><p>Paragraph 1</p><p>Paragraph 2</p></div>", "\n\nParagraph 1\n\nParagraph 2")]
-    [InlineData("<h1>Title</h1><p>Content with <strong>bold</strong> text</p>", "Title\n\nContent with bold text")]
+    [InlineData("<h1>Title</h1><p>Content with <strong>bold</strong> text</p>", "# Title\n\nContent with **bold** text")]
     [InlineData("<br/>Line 1<br/>Line 2", "\nLine 1\nLine 2")]
-    [InlineData("", "")]
     [InlineData("<p>Line 1Line 2</p>", "\n\nLine 1Line 2")]
-    public async Task HtmlToPlainText_ReturnsExpectedText(string html, string expected)
+    [InlineData("<a href=\"http://example.com\">example.com</a>", "http://example.com")]
+    [InlineData("<a href=\"https://example.com/page\">https://example.com/page</a>", "https://example.com/page")]
+    [InlineData("<a href=\"https://example.com/page/\">example.com/page</a>", "https://example.com/page/")]
+    [InlineData("<a href=\"https://example.com\">click here</a>", "[click here](https://example.com)")]
+    [InlineData("<a href=\"http://example.com\">http://example.com</a>", "http://example.com")]
+    [InlineData("<a href=\"https://www.imaworldbuilder.com\">www.imaworldbuilder.com</a>", "https://www.imaworldbuilder.com")]
+    public void HtmlToMarkdown_ReturnsExpectedText(string html, string expected)
     {
-        var result = await Helper.HtmlToPlainText(html);
-        
+        var result = Helper.HtmlToMarkdown(html);
+
         Assert.Equal(expected, result);
     }
+
+
 
     [Theory]
     [InlineData("**bold**", "bold\n")]
@@ -106,7 +119,7 @@ public class HelpersTest
     public void MarkdownToPlainText_ReturnsExpectedText(string markdown, string expected)
     {
         var result = Helper.MarkdownToPlainText(markdown);
-        
+
         Assert.Equal(expected, result);
     }
 
@@ -126,9 +139,9 @@ public class HelpersTest
             var parts = item.Split('=');
             queryString.Add(new KeyValuePair<string, string>(parts[0], parts[1]));
         }
-        
+
         var result = Helper.GetUriWithQueryString(uri, queryString);
-        
+
         Assert.Equal(expected, result);
     }
 
@@ -140,9 +153,9 @@ public class HelpersTest
             new("key", "value with spaces"),
             new("special&key", "value&special")
         };
-        
+
         var result = Helper.GetUriWithQueryString("https://example.com", queryString);
-        
+
         Assert.Contains("key=value+with+spaces", result);
         Assert.Contains("special%26key=value%26special", result);
     }
