@@ -81,10 +81,10 @@ public sealed class OptionsDefaultTest
     }
 
     [Fact]
-    public void BotOptionsDefaultToEightMaximumEmbeds()
+    public void BotOptionsDefaultTo999MaximumEmbeds()
     {
         var options = new BotOptions();
 
-        Assert.Equal(8u, options.MaximumEmbeds);
+        Assert.Equal(999u, options.MaximumEmbeds);
     }
 }

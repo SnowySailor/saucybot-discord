@@ -64,7 +64,7 @@ public static class Constants
     ///
     /// This is primarily used as a fallback value.
     /// </summary>
-    public const int DefaultMaximumEmbeds = 8;
+    public const int DefaultMaximumEmbeds = 999;
 
     /// <summary>
     /// The default maximum number of Pixiv images to return for a Pixiv illustration.
