@@ -1,0 +1,31 @@
+# Minimal OpenTelemetry Collector config so the otel-collector service in
+# compose.prod.yml can start. Contains no secrets. The bot only sends data here
+# when OpenTelemetry:Enabled is true in appsettings.json.
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  batch: {}
+
+exporters:
+  # Metrics are scrapeable at :8889/metrics (port published in compose.prod.yml).
+  prometheus:
+    endpoint: 0.0.0.0:8889
+  debug:
+    verbosity: basic
+
+service:
+  pipelines:
+    metrics:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [prometheus]
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [debug]
